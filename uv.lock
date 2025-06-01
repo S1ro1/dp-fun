@@ -92,6 +92,19 @@ wheels = [
 ]
 
 [[package]]
+name = "debugpy-run"
+version = "1.13"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "debugpy" },
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/74/bb/ec2f5d9a9ee07b97cf2829d860ae1349b6f9a17cfb3c540e76abb776a151/debugpy_run-1.13.tar.gz", hash = "sha256:5801fb8be1db5e9aac03ac114d088818510854cbc6543927f8cf5167e34edd76", size = 7194, upload-time = "2025-04-16T21:27:33.457Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/af/0e/3f85024d5676747e8029462cf8a5c5c6c2b0281891bd172ef7a59bc43119/debugpy_run-1.13-py3-none-any.whl", hash = "sha256:2f9848429c5f816ea9cb557f89fa89617e1a290188b714c6c903acbfe755ca9c", size = 6957, upload-time = "2025-04-16T21:27:31.765Z" },
+]
+
+[[package]]
 name = "decorator"
 version = "5.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -213,11 +226,15 @@ name = "kernelbench-verifiers"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "debugpy-run" },
     { name = "ipykernel" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "ipykernel", specifier = ">=6.29.5" }]
+requires-dist = [
+    { name = "debugpy-run", specifier = ">=1.13" },
+    { name = "ipykernel", specifier = ">=6.29.5" },
+]
 
 [[package]]
 name = "matplotlib-inline"

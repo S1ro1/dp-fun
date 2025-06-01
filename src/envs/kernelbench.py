@@ -6,6 +6,7 @@ import sys
 from typing import Any
 
 import datasets
+from verifiers.parsers import XMLParser
 from verifiers.envs.code_env import CodeEnv
 from verifiers.utils.data_utils import format_prompt
 
@@ -22,16 +23,11 @@ class KernelBenchEnv(CodeEnv):
                 "prompt": format_prompt(
                     x["code"], system_prompt=self.system_prompt, few_shot=self.few_shot
                 ),
-                "answer": 0.0,
+                "problem_name": x["name"],
             }
         )
-        self.eval_dataset = self.eval_dataset["level_1"].select(range(5))
-
-    def get_reward_funcs(self, *args, **kwargs):
-        return [lambda *args, **kwargs: [1.0, 1.0]]
-
-    def get_reward_weights(self, *args, **kwargs):
-        return [1.0]
+        self.eval_dataset = self.eval_dataset["level_1"].select(range(1))
+        self.parser = XMLParser(fields=["answer"])
 
     def env_response(
         self, messages: list[dict[str, str]], reference_code: str = "", **kwargs: Any
@@ -57,6 +53,41 @@ class KernelBenchEnv(CodeEnv):
             "role": "user",
             "content": "Error: Code not found or invalid XML format. Please ensure correct formatting.",
         }
+
+    def run_code(self, reference_code: str, code: str) -> str:
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+                f.write(code)
+                f.flush()
+                temp_file_path = f.name
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+                f.write(reference_code)
+                f.flush()
+                reference_file_path = f.name
+
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "src/test_suite.py",
+                        temp_file_path,
+                        reference_file_path,
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=60,
+                )
+                if result.stderr:
+                    return f"Error: {result.stderr.strip()}"
+                return result.stdout.strip() if result.stdout else ""
+            finally:
+                # Clean up the temporary file
+                os.unlink(temp_file_path)
+                os.unlink(reference_file_path)
+        except subprocess.TimeoutExpired:
+            return "Error: Code execution timed out after 10 seconds"
 
     def step_api(
         self,
@@ -113,41 +144,6 @@ class KernelBenchEnv(CodeEnv):
             messages_copy.append(error_msg)
             return messages_copy, True
 
-    def run_code(self, reference_code: str, code: str) -> str:
-        try:
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-                f.write(code)
-                f.flush()
-                temp_file_path = f.name
-
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-                f.write(reference_code)
-                f.flush()
-                reference_file_path = f.name
-
-            try:
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        "src/test_suite.py",
-                        temp_file_path,
-                        reference_file_path,
-                    ],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    timeout=10,
-                )
-                if result.stderr:
-                    return f"Error: {result.stderr.strip()}"
-                return result.stdout.strip() if result.stdout else ""
-            finally:
-                # Clean up the temporary file
-                os.unlink(temp_file_path)
-                os.unlink(reference_file_path)
-        except subprocess.TimeoutExpired:
-            return "Error: Code execution timed out after 10 seconds"
-
     def eval_api(
         self,
         client: Any,
@@ -190,22 +186,15 @@ class KernelBenchEnv(CodeEnv):
 
             async def process_example(example, semaphore):
                 async with semaphore:
-                    # Initialize conversation with system prompt and few-shot examples
                     prompt = example["prompt"]
                     messages = deepcopy(example["prompt"])
-                    answer = example["answer"]
                     reference_code = example["code"]
+                    problem_name = example["problem_name"]
 
-                    # Save the length of initial messages to extract just the interaction part later
                     initial_length = len(messages)
 
-                    # Run the conversation loop until completion or max steps
-                    for _ in range(
-                        self.max_steps
-                    ):  # Safety limit on conversation turns
+                    for _ in range(self.max_steps):
                         try:
-                            # Run step_api to get model and environment response
-                            # Note: step_api now returns a tuple (messages, is_completed)
                             step_result = (
                                 await asyncio.get_event_loop().run_in_executor(
                                     None,
@@ -234,10 +223,12 @@ class KernelBenchEnv(CodeEnv):
 
                     # Extract only the interaction part (not system/few-shot)
                     completions = messages[initial_length:]
+                    answer = self.parser.parse(completions[-1]["content"])
 
                     return {
                         "prompt": prompt,
                         "completions": completions,
+                        "problem_name": problem_name,
                         "answer": answer,
                     }
 
@@ -267,27 +258,21 @@ class KernelBenchEnv(CodeEnv):
             finally:
                 loop.close()
 
-            # Calculate rewards
             results_prompt = [result["prompt"] for result in results]
-            results_answer = [result["answer"] for result in results]
             results_completions = [result["completions"] for result in results]
+            results_answers = [result["answer"].__dict__ for result in results]
             results = {
                 "prompt": results_prompt,
-                "answer": results_answer,
                 "completions": results_completions,
+                "answers": results_answers,
             }
 
-            reward_funcs = self.get_reward_funcs()
-            rewards = {}
-
-            for reward_func in reward_funcs:
-                func_rewards = reward_func(**results)  # type: ignore
-                func_rewards = [fr for fr in func_rewards if fr is not None]
-                func_reward_avg = sum(func_rewards) / max(1, len(func_rewards))
-                func_name = reward_func.__name__  # type: ignore
-                print(f"{func_name}: {func_reward_avg}")
-                rewards[func_name] = func_reward_avg
-
-            return results, rewards
+            return results
 
         return run_evaluation()
+
+    def get_reward_funcs(self, *args, **kwargs):
+        return [lambda *args, **kwargs: [1.0, 1.0]]
+
+    def get_reward_weights(self, *args, **kwargs):
+        return [1.0]
