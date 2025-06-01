@@ -4,9 +4,23 @@ import importlib.util
 import os
 import random
 import sys
+import time
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+@dataclass
+class Result:
+    error: str | None = None
+    is_correct: bool = False
+    speedup: float = 0.0
+
+
+@dataclass(frozen=True)
+class Reference:
+    model: torch.nn.Module
+    get_inputs: callable
 
 
 def _check_correctness(
@@ -41,17 +55,19 @@ def _check_correctness(
         )
 
 
-@dataclass(frozen=True)
-class Reference:
-    model: torch.nn.Module
-    get_inputs: callable
+def _benchmark(inputs: any, model: torch.nn.Module) -> float:
+    for _ in range(3):
+        model(*inputs)
 
+    times = []
 
-@dataclass(frozen=True)
-class Result:
-    error: str | None = None
-    is_correct: bool = False
-    speedup: float = 0.0
+    for _ in range(10):
+        start_time = time.perf_counter()
+        model(*inputs)
+        end_time = time.perf_counter()
+        times.append(end_time - start_time)
+
+    return sum(times) / len(times)
 
 
 def get_reference(module_name) -> Reference:
@@ -90,7 +106,16 @@ def run_tests(reference: Reference, candidate: torch.nn.Module) -> list[Result]:
 
         is_correct, error = _check_correctness(reference_output, candidate_output)
 
-        results.append(Result(error=error, is_correct=is_correct, speedup=1.0))
+        reference_time = _benchmark(inputs, reference.model)
+        candidate_time = _benchmark(inputs, candidate)
+
+        results.append(
+            Result(
+                error=error,
+                is_correct=is_correct,
+                speedup=reference_time / candidate_time,
+            )
+        )
 
     return results
 
@@ -119,6 +144,9 @@ def main():
     passed_tests = sum(1 for r in results if r.is_correct)
 
     print(f"Tests passed: {passed_tests}/{total_tests}")
+    print(
+        f"Candidate model is in average {sum(r.speedup for r in results) / len(results)}x faster than the reference model"
+    )
 
     if passed_tests < total_tests:
         print("Failed tests:")

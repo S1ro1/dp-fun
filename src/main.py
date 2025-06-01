@@ -15,8 +15,10 @@ uv run verifiers/examples/demo_kernelbench.py
 
 PROMPT = """
 Think step-by-step inside <reasoning>...</reasoning> tags, then either write your code inside <code>...</code> tags, or give your final answer inside <answer>...</answer> tags.
-You will be given a prompt containing a code snippet. This code snippet contains a reference model, named `Model`. Your response has to include a `torch.nn.Module` class called `NewModel` that implements the same functionality as the reference model. Your response has to include all required imports. It shouldn't contain any other definitions, after finishing your response 
-in <code>...</code> tags, you will be given a response containing how your code performed against the reference model. When you think you are done, or your model passed the tests correctly, write your final answer containg the model code inside <answer>...</answer> tags.
+You will be given a prompt containing a code snippet. This code snippet contains a reference model, named `Model`. Your response has to include a `torch.nn.Module` class called `NewModel` that implements the same functionality as the reference model, but using triton, trying to maximize speed-up while maintaining correctness.
+Your code will NOT have access to the reference model.
+Your response has to include all required imports. It shouldn't contain any other definitions, after writing your response in <code>...</code> tags, you will be given an information containing how your code performed against the reference model, which you can use to improve your model in terms of speed-up and correctness.
+When done, write your final answer containg the new model code inside <answer>...</answer> tags.
 """
 
 

@@ -27,7 +27,7 @@ class KernelBenchEnv(CodeEnv):
             }
         )
         self.eval_dataset = self.eval_dataset["level_1"].select(range(1))
-        self.parser = XMLParser(fields=["answer"])
+        self.parser = XMLParser(fields=[("answer", "code")])
 
     def env_response(
         self, messages: list[dict[str, str]], reference_code: str = "", **kwargs: Any
